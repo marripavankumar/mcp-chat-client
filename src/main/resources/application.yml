@@ -1,0 +1,41 @@
+server:
+  port: ${SERVER_PORT:8081}
+  # Local-only: the chat API spends your OpenRouter credits and has no authentication.
+  address: ${SERVER_ADDRESS:127.0.0.1}
+
+spring:
+  application:
+    name: mcp-chat-client
+  mvc:
+    async:
+      # Streamed replies with several tool calls can outlast the servlet container's 30s default.
+      request-timeout: 5m
+  ai:
+    openai:
+      # OpenRouter is OpenAI-compatible; the base URL must include /v1.
+      base-url: https://openrouter.ai/api/v1
+      api-key: ${OPENROUTER_API_KEY}
+      chat:
+        options:
+          model: ${app.chat.default-model}
+    mcp:
+      client:
+        name: mcp-chat-client
+        version: 1.0.0
+        type: SYNC
+        request-timeout: 30s
+        toolcallback:
+          enabled: true
+        streamable-http:
+          connections:
+            emp-dept:
+              url: ${MCP_SERVER_URL:http://localhost:8080}
+              endpoint: /mcp
+
+app:
+  chat:
+    default-model: ${OPENROUTER_DEFAULT_MODEL:anthropic/claude-opus-5.5}
+    models-url: https://openrouter.ai/api/v1/models?supported_parameters=tools
+    models-cache-ttl: 1h
+    # Must match APP_API_KEY on the MCP server; leave empty if the server has auth disabled.
+    mcp-api-key: ${MCP_API_KEY:}

@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP Chat</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<style>
+  :root {
+    --bg:#f5f6f8; --panel:#ffffff; --raised:#ffffff; --text:#1b2030; --muted:#6a7386; --faint:#9aa2b2;
+    --border:#e2e5eb; --hover:#f0f2f6; --accent:#3b6ef5; --accent-soft:#e9efff; --user:#eaf0ff;
+    --error:#c0362c; --ok:#1f9d55; --shadow:0 12px 40px rgba(20,25,40,.14), 0 2px 6px rgba(20,25,40,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#121419; --panel:#191c23; --raised:#20242d; --text:#e7eaf0; --muted:#9aa3b5; --faint:#6b7385;
+      --border:#2b303b; --hover:#262b35; --accent:#7096ff; --accent-soft:#232d48; --user:#222c44;
+      --error:#ff8a80; --ok:#4cc38a; --shadow:0 12px 40px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.3);
+    }
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; font:15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--text);
+         display:grid; grid-template-columns:272px 1fr; }
+  button, input, select, textarea { font:inherit; color:inherit; }
+  .mono { font-family:ui-monospace, "Cascadia Mono", Consolas, monospace; }
+
+  /* Sidebar */
+  aside { background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; min-height:0; }
+  .brand { padding:18px 18px 12px; font-weight:650; font-size:16px; display:flex; align-items:center; gap:10px; }
+  .brand .logo { width:28px; height:28px; border-radius:8px; background:var(--accent); color:#fff; display:grid; place-items:center; font-size:14px; }
+  .new-chat { margin:0 14px 14px; padding:9px 12px; border:1px solid var(--border); background:var(--raised); border-radius:10px;
+              cursor:pointer; text-align:left; display:flex; gap:8px; align-items:center; }
+  .new-chat:hover { background:var(--hover); }
+  .section-title { padding:8px 18px; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted);
+                   display:flex; justify-content:space-between; align-items:center; }
+  .status { display:inline-flex; align-items:center; gap:6px; text-transform:none; letter-spacing:0; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--faint); }
+  .dot.ok { background:var(--ok); } .dot.bad { background:var(--error); }
+  #tools { overflow:auto; padding:0 10px 16px; flex:1; }
+  .tool { padding:7px 8px; border-radius:8px; }
+  .tool:hover { background:var(--hover); }
+  .tool b { font-size:13px; font-weight:600; display:block; }
+  .tool span { font-size:12px; color:var(--muted); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+
+  /* Main */
+  main { display:flex; flex-direction:column; min-width:0; min-height:0; }
+  header { display:flex; align-items:center; gap:12px; padding:10px 20px; border-bottom:1px solid var(--border); background:var(--panel); position:relative; }
+
+  /* Model picker trigger */
+  .picker { position:relative; }
+  .trigger { display:flex; align-items:center; gap:10px; padding:6px 10px 6px 6px; border:1px solid var(--border); border-radius:12px;
+             background:var(--raised); cursor:pointer; max-width:min(520px, calc(100vw - 40px)); }
+  .trigger:hover, .trigger[aria-expanded="true"] { border-color:var(--accent); }
+  .trigger .names { display:flex; flex-direction:column; align-items:flex-start; min-width:0; line-height:1.25; }
+  .trigger .names strong { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  .trigger .names small { color:var(--muted); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  .chev { color:var(--muted); flex:none; }
+  .avatar { width:30px; height:30px; flex:none; border-radius:8px; display:grid; place-items:center; font-weight:700; font-size:13px; color:#fff; }
+
+  /* Popover */
+  .popover { position:absolute; top:calc(100% + 8px); left:0; width:min(620px, calc(100vw - 32px)); background:var(--raised);
+             border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); z-index:20; display:none; flex-direction:column;
+             max-height:min(640px, calc(100vh - 90px)); overflow:hidden; }
+  .popover.open { display:flex; }
+  .pop-head { padding:12px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:10px; }
+  .search { display:flex; align-items:center; gap:8px; padding:0 10px; border:1px solid var(--border); border-radius:10px; background:var(--bg); }
+  .search:focus-within { border-color:var(--accent); }
+  .search input { flex:1; border:0; outline:0; background:transparent; padding:9px 0; }
+  .search kbd { font-size:11px; color:var(--faint); border:1px solid var(--border); border-radius:5px; padding:1px 5px; }
+  .chips { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; }
+  .chip { flex:none; border:1px solid var(--border); background:transparent; border-radius:999px; padding:3px 10px; font-size:12.5px; cursor:pointer; color:var(--muted); }
+  .chip:hover { background:var(--hover); }
+  .chip[aria-pressed="true"] { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); }
+  .toolbar { display:flex; align-items:center; gap:12px; font-size:12.5px; color:var(--muted); }
+  .toolbar select { border:1px solid var(--border); background:var(--bg); border-radius:8px; padding:3px 6px; font-size:12.5px; }
+  .toolbar label { display:flex; align-items:center; gap:5px; cursor:pointer; }
+  .toolbar .count { margin-left:auto; }
+  .list { overflow:auto; padding:4px 6px 8px; }
+  .group { position:sticky; top:0; background:var(--raised); padding:8px 8px 4px; font-size:11.5px; font-weight:650;
+           text-transform:uppercase; letter-spacing:.06em; color:var(--muted); z-index:1; }
+  .row { display:grid; grid-template-columns:30px 1fr auto; gap:10px; align-items:center; padding:7px 8px; border-radius:10px; cursor:pointer; }
+  .row:hover, .row.active { background:var(--hover); }
+  .row[aria-selected="true"] { background:var(--accent-soft); }
+  .row .avatar { width:26px; height:26px; font-size:12px; border-radius:7px; }
+  .row .main { min-width:0; }
+  .row .title { font-weight:550; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .id { font-size:11.5px; color:var(--faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .badges { display:flex; gap:5px; align-items:center; }
+  .badge { font-size:11.5px; padding:2px 7px; border-radius:6px; background:var(--bg); border:1px solid var(--border); color:var(--muted); white-space:nowrap; }
+  .badge.free { color:var(--ok); border-color:color-mix(in srgb, var(--ok) 40%, transparent); }
+  .check { color:var(--accent); width:16px; }
+  .empty { padding:30px; text-align:center; color:var(--muted); }
+
+  /* Chat */
+  #log { flex:1; overflow:auto; padding:24px 20px; display:flex; flex-direction:column; gap:14px; }
+  .msg { max-width:min(820px, 100%); padding:10px 14px; border-radius:14px; background:var(--panel); border:1px solid var(--border); overflow-x:auto; }
+  .msg.user { align-self:flex-end; background:var(--user); border-color:transparent; white-space:pre-wrap; }
+  .msg.error { color:var(--error); border-color:color-mix(in srgb, var(--error) 35%, transparent); }
+  .msg small { display:block; color:var(--muted); font-size:11.5px; margin-bottom:4px; }
+  .msg p { margin:.4em 0; } .msg p:first-child { margin-top:0; } .msg p:last-child { margin-bottom:0; }
+  .msg table { border-collapse:collapse; margin:.5em 0; } .msg td, .msg th { border:1px solid var(--border); padding:4px 10px; text-align:left; }
+  .msg code { background:var(--bg); padding:1px 5px; border-radius:5px; font-size:.9em; }
+  .cursor::after { content:"▍"; color:var(--accent); animation:blink 1s steps(1) infinite; margin-left:1px; }
+  @keyframes blink { 50% { opacity:0; } }
+  .welcome { margin:auto; text-align:center; max-width:560px; color:var(--muted); }
+  .welcome h1 { color:var(--text); font-size:22px; margin:0 0 6px; }
+  .suggestions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:20px; }
+  .suggestions button { text-align:left; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--panel); cursor:pointer; font-size:14px; }
+  .suggestions button:hover { border-color:var(--accent); }
+  form { display:flex; gap:8px; padding:14px 20px 18px; background:var(--bg); }
+  .composer { flex:1; display:flex; align-items:flex-end; gap:8px; border:1px solid var(--border); background:var(--panel); border-radius:14px; padding:6px 6px 6px 14px; }
+  .composer:focus-within { border-color:var(--accent); }
+  textarea { flex:1; border:0; outline:0; background:transparent; resize:none; max-height:180px; padding:7px 0; overflow-y:hidden; }
+  .send { width:38px; height:38px; flex:none; border:0; border-radius:10px; background:var(--accent); color:#fff; cursor:pointer; display:grid; place-items:center; }
+  .send:disabled { opacity:.45; cursor:default; }
+
+  @media (max-width:760px) {
+    body { grid-template-columns:1fr; grid-template-rows:auto 1fr; }
+    aside { display:none; }
+    header { padding:10px 16px; } #log { padding:16px; } form { padding:10px 16px 14px; }
+    .suggestions { grid-template-columns:1fr; }
+    .row { grid-template-columns:26px 1fr; } .row .badges { grid-column:2; } .check { display:none; }
+  }
+</style>
+</head>
+<body>
+<aside>
+  <div class="brand"><div class="logo">HR</div>MCP Chat</div>
+  <button class="new-chat" id="newChat" type="button">＋ New conversation</button>
+  <div class="section-title">MCP tools <span class="status"><span class="dot" id="mcpDot"></span><span id="mcpStatus">…</span></span></div>
+  <div id="tools"></div>
+</aside>
+
+<main>
+  <header>
+    <div class="picker">
+      <button class="trigger" id="trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+        <span class="avatar" id="trigAvatar">?</span>
+        <span class="names"><strong id="trigName">Loading models…</strong><small id="trigMeta"></small></span>
+        <svg class="chev" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="popover" id="popover">
+        <div class="pop-head">
+          <div class="search">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input id="search" placeholder="Search models, e.g. claude sonnet, gpt, llama" autocomplete="off" role="combobox" aria-controls="list">
+            <kbd>Esc</kbd>
+          </div>
+          <div class="chips" id="chips"></div>
+          <div class="toolbar">
+            <label>Sort
+              <select id="sort">
+                <option value="provider">Provider</option>
+                <option value="newest">Newest</option>
+                <option value="price">Price: low → high</option>
+                <option value="context">Context: largest</option>
+              </select>
+            </label>
+            <label><input type="checkbox" id="freeOnly"> Free only</label>
+            <span class="count" id="count"></span>
+          </div>
+        </div>
+        <div class="list" id="list" role="listbox"></div>
+      </div>
+    </div>
+  </header>
+
+  <div id="log">
+    <div class="welcome" id="welcome">
+      <h1>Ask about your organisation</h1>
+      <div>Answers come from the employee &amp; department MCP server, using the model you pick above.</div>
+      <div class="suggestions">
+        <button type="button">Which department has the most employees?</button>
+        <button type="button">Give me a summary of the Engineering department</button>
+        <button type="button">Find employees whose name contains "Rao"</button>
+        <button type="button">Who manages each department?</button>
+      </div>
+    </div>
+  </div>
+
+  <form id="form">
+    <div class="composer">
+      <textarea id="input" rows="1" placeholder="Message… (Enter to send, Shift+Enter for a new line)"></textarea>
+      <button class="send" id="send" aria-label="Send">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  </form>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+                set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+
+let models = [], selectedId = null, provider = 'all', active = -1, visible = [];
+let conversationId = crypto.randomUUID();
+
+// ---- model helpers -------------------------------------------------------
+const providerOf = m => m.id.split('/')[0];
+const PROVIDER_NAMES = { 'openai':'OpenAI', 'anthropic':'Anthropic', 'google':'Google', 'meta-llama':'Meta Llama',
+  'mistralai':'Mistral', 'deepseek':'DeepSeek', 'qwen':'Qwen', 'x-ai':'xAI', 'cohere':'Cohere', 'amazon':'Amazon',
+  'microsoft':'Microsoft', 'nvidia':'NVIDIA', 'moonshotai':'Moonshot', 'z-ai':'Z.ai', 'minimax':'MiniMax' };
+const providerLabel = p => PROVIDER_NAMES[p] || p.replace(/(^|[-_])(\w)/g, (_, s, c) => (s ? ' ' : '') + c.toUpperCase());
+const shortName = m => m.name.includes(': ') ? m.name.slice(m.name.indexOf(': ') + 2) : m.name;
+const isFree = m => m.inputPerMillion === 0 && m.outputPerMillion === 0;
+const money = v => v == null ? '?' : v === 0 ? '0' : v < 0.1 ? v.toFixed(3) : v < 10 ? v.toFixed(2).replace(/\.?0+$/, '') : v.toFixed(0);
+const priceText = m => isFree(m) ? 'Free' : `$${money(m.inputPerMillion)} / $${money(m.outputPerMillion)}`;
+const ctxText = n => !n ? '' : n >= 1e6 ? (n / 1e6).toFixed(n % 1e6 ? 1 : 0) + 'M' : Math.round(n / 1000) + 'K';
+function avatar(p, size) {
+  let h = 0; for (const c of p) h = (h * 31 + c.charCodeAt(0)) % 360;
+  const a = el('span', 'avatar', providerLabel(p).charAt(0));
+  a.style.background = `hsl(${h} 55% 48%)`;
+  return a;
+}
+
+// ---- picker --------------------------------------------------------------
+function renderTrigger() {
+  const m = models.find(m => m.id === selectedId);
+  if (!m) return;
+  const a = avatar(providerOf(m)); a.id = 'trigAvatar'; $('trigAvatar').replaceWith(a);
+  $('trigName').textContent = shortName(m);
+  $('trigMeta').textContent = `${providerLabel(providerOf(m))} · ${priceText(m)}${isFree(m) ? '' : ' per 1M tokens'}${m.contextLength ? ' · ' + ctxText(m.contextLength) + ' context' : ''}`;
+}
+
+function renderChips() {
+  const counts = {};
+  for (const m of models) counts[providerOf(m)] = (counts[providerOf(m)] || 0) + 1;
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([p]) => p);
+  $('chips').innerHTML = '';
+  for (const p of ['all', ...top]) {
+    const b = el('button', 'chip', p === 'all' ? `All (${models.length})` : `${providerLabel(p)} (${counts[p]})`);
+    b.type = 'button'; b.setAttribute('aria-pressed', p === provider);
+    b.onclick = () => { provider = p; renderChips(); renderList(); $('search').focus(); };
+    $('chips').append(b);
+  }
+}
+
+function renderList() {
+  const terms = $('search').value.toLowerCase().split(/\s+/).filter(Boolean);
+  const sort = $('sort').value;
+  visible = models.filter(m => (provider === 'all' || providerOf(m) === provider)
+      && (!$('freeOnly').checked || isFree(m))
+      && terms.every(t => (m.id + ' ' + m.name).toLowerCase().includes(t)));
+  const cmp = {
+    provider: (a, b) => providerOf(a).localeCompare(providerOf(b)) || (b.created || 0) - (a.created || 0),
+    newest: (a, b) => (b.created || 0) - (a.created || 0),
+    price: (a, b) => ((a.inputPerMillion ?? 1e9) + (a.outputPerMillion ?? 1e9)) - ((b.inputPerMillion ?? 1e9) + (b.outputPerMillion ?? 1e9)),
+    context: (a, b) => (b.contextLength || 0) - (a.contextLength || 0),
+  }[sort];
+  visible.sort(cmp);
+  $('count').textContent = `${visible.length} model${visible.length === 1 ? '' : 's'}`;
+
+  const list = $('list'); list.innerHTML = '';
+  if (!visible.length) { list.append(el('div', 'empty', 'No models match your search.')); return; }
+  let lastGroup = null;
+  visible.forEach((m, i) => {
+    if (sort === 'provider' && providerOf(m) !== lastGroup) {
+      lastGroup = providerOf(m);
+      list.append(el('div', 'group', providerLabel(lastGroup)));
+    }
+    const row = el('div', 'row'); row.setAttribute('role', 'option'); row.dataset.index = i;
+    row.setAttribute('aria-selected', m.id === selectedId);
+    if (m.description) row.title = m.description;
+    const main = el('div', 'main');
+    main.append(el('div', 'title', sort === 'provider' ? shortName(m) : m.name), el('div', 'id mono', m.id));
+    const badges = el('div', 'badges');
+    if (m.contextLength) badges.append(el('span', 'badge', ctxText(m.contextLength)));
+    badges.append(el('span', 'badge' + (isFree(m) ? ' free' : ''), priceText(m)));
+    badges.append(el('span', 'check', m.id === selectedId ? '✓' : ''));
+    row.append(avatar(providerOf(m)), main, badges);
+    row.onmouseenter = () => setActive(i, false);
+    row.onclick = () => choose(m.id);
+    list.append(row);
+  });
+  setActive(Math.max(0, visible.findIndex(m => m.id === selectedId)), true);
+}
+
+function setActive(i, scroll) {
+  active = i;
+  document.querySelectorAll('.row.active').forEach(r => r.classList.remove('active'));
+  const row = document.querySelector(`.row[data-index="${i}"]`);
+  if (row) { row.classList.add('active'); if (scroll) row.scrollIntoView({ block: 'nearest' }); }
+}
+
+function choose(id) {
+  selectedId = id; store.set('model', id);
+  renderTrigger(); closePicker(); $('input').focus();
+}
+function openPicker() {
+  $('popover').classList.add('open'); $('trigger').setAttribute('aria-expanded', 'true');
+  $('search').value = ''; renderList(); $('search').focus();
+}
+function closePicker() { $('popover').classList.remove('open'); $('trigger').setAttribute('aria-expanded', 'false'); }
+
+$('trigger').onclick = () => $('popover').classList.contains('open') ? closePicker() : openPicker();
+$('search').oninput = renderList;
+$('sort').onchange = renderList;
+$('freeOnly').onchange = renderList;
+$('search').onkeydown = e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(active + 1, visible.length - 1), true); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(active - 1, 0), true); }
+  else if (e.key === 'Enter') { e.preventDefault(); if (visible[active]) choose(visible[active].id); }
+  else if (e.key === 'Escape') { closePicker(); $('trigger').focus(); }
+};
+document.addEventListener('mousedown', e => { if (!e.target.closest('.picker')) closePicker(); });
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPicker(); }
+});
+
+// ---- chat ----------------------------------------------------------------
+function add(cls, text, label) {
+  $('welcome')?.remove();
+  const div = el('div', 'msg ' + cls);
+  if (label) div.append(el('small', null, label));
+  const body = el('div');
+  if (cls === 'bot') body.innerHTML = DOMPurify.sanitize(marked.parse(text ?? ''));
+  else body.textContent = text;
+  div.append(body); $('log').append(div); $('log').scrollTop = $('log').scrollHeight;
+  return div;
+}
+
+async function send(message) {
+  $('send').disabled = true;
+  add('user', message);
+  const bubble = add('bot', '');
+  const label = bubble.insertBefore(el('small'), bubble.firstChild), body = bubble.lastElementChild;
+  body.classList.add('cursor');
+  let reply = '';
+  try {
+    const res = await fetch('/api/chat/stream', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+      body: JSON.stringify({ conversationId, message, model: selectedId }) });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      bubble.remove(); add('error', data.detail || data.message || res.statusText); return;
+    }
+    // Minimal SSE reader: events are separated by a blank line; each has "event:" and "data:" lines.
+    const reader = res.body.getReader(), decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      let sep;
+      while ((sep = buffer.indexOf('\n\n')) >= 0) {
+        const raw = buffer.slice(0, sep); buffer = buffer.slice(sep + 2);
+        let type = 'message', data = '';
+        for (const line of raw.split('\n')) {
+          if (line.startsWith('event:')) type = line.slice(6).trim();
+          else if (line.startsWith('data:')) data += line.slice(5);
+        }
+        const text = data ? JSON.parse(data).text : '';
+        if (type === 'model') {
+          const m = models.find(m => m.id === text);
+          label.textContent = m ? shortName(m) : text;
+        } else if (type === 'delta') {
+          reply += text;
+          body.innerHTML = DOMPurify.sanitize(marked.parse(reply));
+          $('log').scrollTop = $('log').scrollHeight;
+        } else if (type === 'error') add('error', text);
+      }
+    }
+  } catch (err) { add('error', String(err)); }
+  finally {
+    body.classList.remove('cursor');
+    if (!reply) bubble.remove();
+    $('send').disabled = false; $('input').focus();
+  }
+}
+
+$('form').onsubmit = e => {
+  e.preventDefault();
+  const message = $('input').value.trim();
+  if (!message || $('send').disabled) return;
+  $('input').value = ''; autosize();
+  send(message);
+};
+const autosize = () => {
+  const t = $('input');
+  t.style.height = 'auto';
+  t.style.height = t.scrollHeight + 'px';
+  t.style.overflowY = t.scrollHeight > 180 ? 'auto' : 'hidden';
+};
+$('input').oninput = autosize;
+$('input').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('form').requestSubmit(); } };
+document.querySelectorAll('.suggestions button').forEach(b => b.onclick = () => { $('input').value = b.textContent; $('form').requestSubmit(); });
+$('newChat').onclick = async () => {
+  await fetch('/api/chat/' + conversationId, { method: 'DELETE' });
+  location.reload();
+};
+
+// ---- startup -------------------------------------------------------------
+async function load() {
+  try {
+    const r = await fetch('/api/models').then(r => r.json());
+    models = r.models;
+    const saved = store.get('model');
+    selectedId = models.some(m => m.id === saved) ? saved
+      : models.some(m => m.id === r.defaultModel) ? r.defaultModel : models[0]?.id;
+    renderChips(); renderTrigger();
+  } catch { $('trigName').textContent = 'Could not load models'; }
+
+  try {
+    const tools = await fetch('/api/tools').then(r => r.json());
+    $('mcpDot').className = 'dot ' + (tools.length ? 'ok' : 'bad');
+    $('mcpStatus').textContent = tools.length ? `${tools.length} connected` : 'none';
+    for (const t of tools) {
+      const d = el('div', 'tool'); d.title = t.description;
+      d.append(el('b', 'mono', t.name), el('span', null, t.description));
+      $('tools').append(d);
+    }
+  } catch { $('mcpDot').className = 'dot bad'; $('mcpStatus').textContent = 'offline'; }
+}
+load();
+</script>
+</body>
+</html>
